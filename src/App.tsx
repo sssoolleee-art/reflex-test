@@ -207,7 +207,7 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
         </h1>
         <p style={{ fontSize: 15, color: '#666', marginTop: 10, letterSpacing: '-0.3px' }}>
           초록색으로 바뀌는 순간 터치!<br />
-          5회 평균으로 등급이 결정돼요.
+          2회 평균으로 등급이 결정돼요.
         </p>
       </div>
 
@@ -234,7 +234,7 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
       {/* 시작 버튼 */}
       <div style={{ padding: '20px 24px 0' }}>
         <button style={s.startBtn} onClick={onStart}>
-          5회 도전 시작
+          2회 도전 시작
         </button>
       </div>
 
@@ -301,8 +301,8 @@ function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => voi
       setAttempt(nextAttempt);
       setPhase('showed');
 
-      if (nextAttempt >= 5) {
-        const avgMs   = Math.round(newResults.reduce((a, b) => a + b, 0) / 5);
+      if (nextAttempt >= 2) {
+        const avgMs   = Math.round(newResults.reduce((a, b) => a + b, 0) / 2);
         const grade   = getGrade(avgMs);
         const percentile = getPercentile(avgMs);
         const bestMs  = Math.min(...newResults);
@@ -322,7 +322,7 @@ function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => voi
     phase === 'foul'    ? '#FFA502' :
     phase === 'showed'  ? '#00D2D3' : '#FF4757';
 
-  const progressLabel = phase === 'showed' ? `${attempt} / 5` : `${attempt + 1} / 5`;
+  const progressLabel = phase === 'showed' ? `${attempt} / 2` : `${attempt + 1} / 2`;
 
   return (
     <div
@@ -374,7 +374,7 @@ function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => voi
             {lastMs}<span style={{ fontSize: 36, letterSpacing: '-2px' }}>ms</span>
           </p>
           <p style={{ fontSize: 14, opacity: 0.75, marginTop: 8 }}>
-            {attempt >= 5 ? '완료! 잠시만요...' : '다음 시도 준비 중'}
+            {attempt >= 2 ? '완료! 잠시만요...' : '다음 시도 준비 중'}
           </p>
         </div>
       )}
