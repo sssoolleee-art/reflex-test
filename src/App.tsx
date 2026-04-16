@@ -410,14 +410,12 @@ function ResultScreen({
     const setCount = getTodaySetCount();
     if (setCount < FREE_SETS_PER_DAY) {
       incrementSetCount();
-      await showInterstitialAd();
       onPlayAgain();
     } else {
       // 추가 세트: 리워드 광고
       const earned = await showRewardedAd();
       if (earned) {
         incrementSetCount();
-        await showInterstitialAd();
         onPlayAgain();
       } else {
         showToast('광고를 끝까지 보면 1세트 더 할 수 있어요!');
