@@ -1,11 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { TossAds, loadFullScreenAd, showFullScreenAd } from '@apps-in-toss/web-framework';
 
-// 개발용 테스트 ID. 심사 제출 전 콘솔에서 발급받은 실제 ID로 교체할 것.
 const AD_IDS = {
-  banner:       'ait-ad-test-banner-id',
-  interstitial: 'ait-ad-test-interstitial-id',
-  rewarded:     'ait-ad-test-rewarded-id',
+  banner:       'ait.v2.live.c58a229bc85c4056',
+  interstitial: 'ait.v2.live.49bafaf2815245b2',
+  rewarded:     'ait.v2.live.a7c643811a3846fe',
 };
 
 export function BannerAd() {

@@ -588,26 +588,20 @@ function HistoryScreen({ onBack }: { onBack: () => void }) {
 // ── Share Screen ──────────────────────────────────────────────────────────────
 
 function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () => void }) {
+  const [showShareModal, setShowShareModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const g = GRADE[session.grade];
 
-  function handleShare() {
-    const text = `⚡ 반응속도 테스트 결과\n\n`
-      + `평균: ${session.avgMs}ms\n`
-      + `등급: ${g.emoji} ${g.label}\n`
-      + `상위 ${session.percentile}%\n\n`
-      + `너는 몇 ms야? 👇 토스에서 도전해봐!`;
+  const shareText = `⚡ 반응속도 테스트 결과\n\n`
+    + `평균: ${session.avgMs}ms\n`
+    + `등급: ${g.emoji} ${g.label}\n`
+    + `상위 ${session.percentile}%\n\n`
+    + `너는 몇 ms야? 👇 토스에서 도전해봐!`;
 
-    if (navigator.share) {
-      navigator.share({ title: '반응속도 테스트', text }).catch(() => copyFallback(text));
-    } else {
-      copyFallback(text);
-    }
-  }
-
-  function copyFallback(text: string) {
-    navigator.clipboard.writeText(text).then(() => {
+  function handleCopy() {
+    navigator.clipboard.writeText(shareText).then(() => {
       setCopied(true);
+      setShowShareModal(false);
       setTimeout(() => setCopied(false), 2000);
     });
   }
@@ -615,6 +609,31 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
   return (
     <div style={s.page}>
       {copied && <div style={s.toast}>복사됐어요 📋</div>}
+
+      {/* 공유 모달 */}
+      {showShareModal && (
+        <div
+          style={{ position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', zIndex: 100 }}
+          onClick={() => setShowShareModal(false)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: '32px 24px 48px', width: '100%' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <p style={{ fontSize: 18, fontWeight: 800, color: '#111', letterSpacing: '-0.5px', marginBottom: 20 }}>
+              결과 공유하기
+            </p>
+            <div style={{ background: '#F5F5F5', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
+              <p style={{ fontSize: 13, color: '#555', lineHeight: 1.6, whiteSpace: 'pre-line' as const }}>
+                {shareText}
+              </p>
+            </div>
+            <button style={{ ...s.primaryBtn, background: '#111' }} onClick={handleCopy}>
+              텍스트 복사하기
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ padding: '56px 16px 0' }}>
         {/* 공유 카드 */}
@@ -644,7 +663,7 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
       </div>
 
       <div style={{ padding: '20px 16px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <button style={{ ...s.primaryBtn, background: '#111' }} onClick={handleShare}>
+        <button style={{ ...s.primaryBtn, background: '#111' }} onClick={() => setShowShareModal(true)}>
           공유하기
         </button>
         <button style={{ ...s.ghostBtn }} onClick={onBack}>
@@ -661,15 +680,17 @@ export default function App() {
   const [screen,  setScreen]  = useState<Screen>('home');
   const [session, setSession] = useState<SessionResult | null>(null);
 
-  function handleStart() {
+  async function handleStart() {
     const count = getTodaySetCount();
     if (count < FREE_SETS_PER_DAY) {
       incrementSetCount();
       setScreen('play');
     } else {
-      // 무료 세트 소진 → 홈에서 바로 안내 (play screen에서 rewarded 처리)
-      incrementSetCount();
-      setScreen('play');
+      const earned = await showRewardedAd();
+      if (earned) {
+        incrementSetCount();
+        setScreen('play');
+      }
     }
   }
 
