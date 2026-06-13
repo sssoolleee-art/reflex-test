@@ -134,6 +134,33 @@ function getPercentile(avgMs: number): number {
   return Math.max(1, Math.min(99, Math.round(cdf * 100)));
 }
 
+// 다음(더 빠른) 등급까지 몇 ms 남았는지 — 재시도 유도용 near-miss 갭
+const GRADE_TARGETS = [
+  { v: 180, l: '번개 반사신경' },
+  { v: 220, l: '프로 게이머급' },
+  { v: 260, l: '빠른 편' },
+  { v: 320, l: '평균' },
+  { v: 400, l: '느긋한 편' },
+];
+function getNextTarget(avgMs: number): { label: string; gap: number } | null {
+  const below = GRADE_TARGETS.filter(t => t.v < avgMs);
+  if (below.length === 0) return null; // 이미 최상위
+  const t = below[below.length - 1];
+  return { label: t.l, gap: avgMs - t.v + 1 };
+}
+
+// 등급별 승부욕 멘트 (상위=도발/플렉스, 중간=near-miss, 하위=가볍게 띄워주기)
+function getTaunt(grade: ReflexGrade): string {
+  switch (grade) {
+    case 'flash':  return '이거 깨는 사람 있긴 해? ⚡';
+    case 'pro':    return '번개까지 한 끗. 각 나왔다.';
+    case 'fast':   return '여기서 멈추면 아깝잖아.';
+    case 'normal': return '딱 평균. 진짜 실력은 지금부터지.';
+    case 'slow':   return '방금은 워밍업이었던 걸로 하자.';
+    case 'sleepy': return '졸려 보이는데? 한 판 더 하면 깨어난다.';
+  }
+}
+
 // ── SVG Line Chart ────────────────────────────────────────────────────────────
 
 function LineChart({ data }: { data: DailyRecord[] }) {
@@ -493,6 +520,21 @@ function ResultScreen({
         <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>
           상위 {session.percentile}% · 최고 {session.bestMs}ms
         </p>
+        <p style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginTop: 12, letterSpacing: '-0.3px' }}>
+          {getTaunt(session.grade)}
+        </p>
+        {(() => {
+          const next = getNextTarget(session.avgMs);
+          return next ? (
+            <div style={{ display: 'inline-block', marginTop: 10, background: 'rgba(255,255,255,0.22)', borderRadius: 99, padding: '6px 14px', fontSize: 13, fontWeight: 800, color: '#fff' }}>
+              🔥 '{next.label}'까지 {next.gap}ms
+            </div>
+          ) : (
+            <div style={{ display: 'inline-block', marginTop: 10, background: 'rgba(255,255,255,0.22)', borderRadius: 99, padding: '6px 14px', fontSize: 13, fontWeight: 800, color: '#fff' }}>
+              🏆 최정상 등급 · 기록 방어각
+            </div>
+          );
+        })()}
       </div>
 
       {/* 5회 결과 */}
@@ -642,11 +684,8 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
   const [copied, setCopied] = useState(false);
   const g = GRADE[session.grade];
 
-  const shareText = `⚡ 반응속도 테스트 결과\n\n`
-    + `평균: ${session.avgMs}ms\n`
-    + `등급: ${g.emoji} ${g.label}\n`
-    + `상위 ${session.percentile}%\n\n`
-    + `너는 몇 ms야? 👇 토스에서 도전해봐!`;
+  const shareText = `⚡ 나 ${session.avgMs}ms 찍음 (${g.emoji} ${g.label}, 상위 ${session.percentile}%)\n\n`
+    + `너는 몇 ms? 손가락 자신 있으면 와봐 👇`;
 
   function handleCopy() {
     navigator.clipboard.writeText(shareText).then(() => {
