@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { BannerAd, showInterstitialAd, showRewardedAd } from './utils/ads';
+import { graniteEvent, getTossShareLink, share } from '@apps-in-toss/web-framework';
+import { BannerAd, showInterstitialAd, showRewardedAd, isAdFree, restoreAdFree, buyAdFree } from './utils/ads';
+import { haptic } from './utils/haptic';
+
+const APP_DEEPLINK = 'intoss://reflex-test';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -195,7 +199,13 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
   const streak     = getStreak();
   const total      = getTotalAttempts();
   const setCount   = getTodaySetCount();
-  const setsLeft   = Math.max(0, FREE_SETS_PER_DAY - setCount);
+  const [adFree, setAdFree] = React.useState(isAdFree());
+  const [purchasing, setPurchasing] = React.useState(false);
+  const setsLeft   = adFree ? Infinity : Math.max(0, FREE_SETS_PER_DAY - setCount);
+
+  React.useEffect(() => {
+    restoreAdFree(() => setAdFree(true));
+  }, []);
 
   return (
     <div style={s.page}>
@@ -221,13 +231,11 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
           <StatCard icon="🔥" label="연속 도전" value={streak > 0 ? `${streak}일` : '—'} />
           <StatCard icon="📊" label="총 시도"   value={total > 0 ? `${total}회` : '—'} />
         </div>
-        {setsLeft > 0
-          ? <p style={{ fontSize: 13, color: '#00B8B9', fontWeight: 600, textAlign: 'center' }}>
-              오늘 무료 도전 {setsLeft}회 남음
-            </p>
-          : <p style={{ fontSize: 13, color: '#FF6B6B', fontWeight: 600, textAlign: 'center' }}>
-              오늘 무료 도전 소진 · 광고 시청 후 추가 가능
-            </p>
+        {adFree
+          ? <p style={{ fontSize: 13, color: '#00B8B9', fontWeight: 600, textAlign: 'center' }}>무제한 도전 중</p>
+          : setsLeft > 0
+            ? <p style={{ fontSize: 13, color: '#00B8B9', fontWeight: 600, textAlign: 'center' }}>오늘 무료 도전 {setsLeft}회 남음</p>
+            : <p style={{ fontSize: 13, color: '#FF6B6B', fontWeight: 600, textAlign: 'center' }}>오늘 무료 도전 소진 · 광고 시청 후 추가 가능</p>
         }
       </div>
 
@@ -239,9 +247,25 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
       </div>
 
       <div style={{ flex: 1 }} />
-      <div style={{ padding: '0 0 16px' }}>
-        <BannerAd />
-      </div>
+      {!adFree && (
+        <div style={{ padding: '0 24px 8px' }}>
+          <button
+            onClick={() => {
+              if (purchasing) return;
+              setPurchasing(true);
+              buyAdFree(() => setAdFree(true), () => setPurchasing(false));
+            }}
+            style={{ width: '100%', padding: '12px', borderRadius: 12, background: '#fff', border: '1.5px solid #B2F0F0', color: '#aaa', fontSize: 13, cursor: 'pointer' }}
+          >
+            {purchasing ? '처리 중...' : '🚫 ₩990으로 광고 제거 + 무제한 도전'}
+          </button>
+        </div>
+      )}
+      {!adFree && (
+        <div style={{ padding: '0 0 16px' }}>
+          <BannerAd />
+        </div>
+      )}
     </div>
   );
 }
@@ -258,7 +282,7 @@ function StatCard({ icon, label, value }: { icon: string; label: string; value: 
 
 // ── Play Screen ───────────────────────────────────────────────────────────────
 
-function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => void }) {
+function PlayScreen({ onComplete, onBack }: { onComplete: (result: SessionResult) => void; onBack: () => void }) {
   const [phase,   setPhase]   = useState<Phase>('idle');
   const [attempt, setAttempt] = useState(0);   // 완료된 유효 시도 수 (0~5)
   const [results, setResults] = useState<number[]>([]);
@@ -271,6 +295,16 @@ function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => voi
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
+  useEffect(() => {
+    const cleanup = graniteEvent.addEventListener('backEvent', {
+      onEvent: () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        onBack();
+      },
+    });
+    return () => { cleanup?.(); };
+  }, [onBack]);
+
   function beginAttempt() {
     setPhase('waiting');
     const delay = 1500 + Math.random() * 2500;
@@ -282,18 +316,21 @@ function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => voi
 
   const handleTap = useCallback(async () => {
     if (phase === 'idle') {
+      haptic('tickWeak');
       beginAttempt();
       return;
     }
     if (phase === 'waiting') {
       clearTimeout(timerRef.current!);
       timerRef.current = null;
+      haptic('error');
       setPhase('foul');
       setTimeout(() => setPhase('idle'), 1500);
       return;
     }
     if (phase === 'ready') {
       const ms = Math.round(performance.now() - startTimeRef.current);
+      haptic('success');
       setLastMs(ms);
       const newResults = [...results, ms];
       const nextAttempt = attempt + 1;
@@ -308,7 +345,7 @@ function PlayScreen({ onComplete }: { onComplete: (result: SessionResult) => voi
         const bestMs  = Math.min(...newResults);
         const session: SessionResult = { results: newResults, avgMs, grade, percentile, bestMs };
         saveSession(session);
-        await showInterstitialAd();
+        if (!isAdFree()) await showInterstitialAd();
         onComplete(session);
       } else {
         setTimeout(() => setPhase('idle'), 1200);
@@ -395,50 +432,48 @@ function ResultScreen({
   onShowHistory: () => void;
   onShare: () => void;
 }) {
-  const [loading, setLoading] = useState<'history' | 'again' | null>(null);
-  const [toast,   setToast]   = useState('');
+  const [loading,    setLoading]    = useState<'history' | 'again' | null>(null);
+  const [adFree,     setAdFree]     = React.useState(isAdFree());
+  const [purchasing, setPurchasing] = React.useState(false);
+
+  React.useEffect(() => {
+    restoreAdFree(() => setAdFree(true));
+  }, []);
 
   const g = GRADE[session.grade];
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(''), 2500);
-  }
-
   async function handlePlayAgain() {
     setLoading('again');
+    if (isAdFree()) {
+      incrementSetCount();
+      onPlayAgain();
+      return;
+    }
     const setCount = getTodaySetCount();
     if (setCount < FREE_SETS_PER_DAY) {
       incrementSetCount();
       onPlayAgain();
     } else {
-      // 추가 세트: 리워드 광고
-      const earned = await showRewardedAd();
-      if (earned) {
-        incrementSetCount();
-        onPlayAgain();
-      } else {
-        showToast('광고를 끝까지 보면 1세트 더 할 수 있어요!');
-      }
+      await showRewardedAd();
+      incrementSetCount();
+      onPlayAgain();
     }
     setLoading(null);
   }
 
   async function handleHistory() {
     setLoading('history');
-    const earned = await showRewardedAd();
-    if (earned) {
+    if (isAdFree()) {
       onShowHistory();
-    } else {
-      showToast('광고를 끝까지 보면 기록을 확인할 수 있어요!');
+      return;
     }
+    await showRewardedAd();
+    onShowHistory();
     setLoading(null);
   }
 
   return (
     <div style={s.page}>
-      {toast && <div style={s.toast}>{toast}</div>}
-
       {/* 결과 카드 */}
       <div style={{ ...s.card, margin: '52px 16px 0', background: g.color }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.65)', letterSpacing: 1 }}>
@@ -489,16 +524,17 @@ function ResultScreen({
         </div>
       </div>
 
-      {/* 반응속도 추이 (잠금) */}
+      {/* 반응속도 추이 */}
       <div style={{ padding: '12px 16px 0' }}>
         <button
           style={{ ...s.lockedBtn, opacity: loading === 'history' ? 0.6 : 1 }}
           onClick={handleHistory}
           disabled={loading !== null}
         >
-          <span style={{ fontSize: 16, marginRight: 6 }}>🔒</span>
-          나의 반응속도 추이 보기
-          <span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>(광고 시청)</span>
+          {adFree
+            ? <><span style={{ fontSize: 16, marginRight: 6 }}>📊</span>나의 반응속도 추이 보기</>
+            : <><span style={{ fontSize: 16, marginRight: 6 }}>🔒</span>나의 반응속도 추이 보기<span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>(광고 시청)</span></>
+          }
         </button>
       </div>
 
@@ -517,9 +553,25 @@ function ResultScreen({
       </div>
 
       <div style={{ flex: 1 }} />
-      <div style={{ padding: '16px 0' }}>
-        <BannerAd />
-      </div>
+      {!adFree && (
+        <div style={{ padding: '0 16px 8px' }}>
+          <button
+            onClick={() => {
+              if (purchasing) return;
+              setPurchasing(true);
+              buyAdFree(() => setAdFree(true), () => setPurchasing(false));
+            }}
+            style={{ width: '100%', padding: '12px', borderRadius: 12, background: '#fff', border: '1.5px solid #B2F0F0', color: '#aaa', fontSize: 13, cursor: 'pointer' }}
+          >
+            {purchasing ? '처리 중...' : '🚫 ₩990으로 광고 제거 + 무제한 도전'}
+          </button>
+        </div>
+      )}
+      {!adFree && (
+        <div style={{ padding: '0 0 16px' }}>
+          <BannerAd />
+        </div>
+      )}
     </div>
   );
 }
@@ -604,6 +656,19 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
     });
   }
 
+  // 토스 공유 링크(앱 진입)를 붙여 네이티브 공유 시트로. 미지원이면 복사 모달로 폴백.
+  async function handleShare() {
+    haptic('tap');
+    let link = '';
+    try { link = await getTossShareLink(APP_DEEPLINK); } catch { /* 토스 앱 밖 */ }
+    const message = link ? `${shareText}\n${link}` : shareText;
+    try {
+      await share({ message });
+    } catch {
+      setShowShareModal(true);
+    }
+  }
+
   return (
     <div style={s.page}>
       {copied && <div style={s.toast}>복사됐어요 📋</div>}
@@ -661,7 +726,7 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
       </div>
 
       <div style={{ padding: '20px 16px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <button style={{ ...s.primaryBtn, background: '#111' }} onClick={() => setShowShareModal(true)}>
+        <button style={{ ...s.primaryBtn, background: '#111' }} onClick={handleShare}>
           공유하기
         </button>
         <button style={{ ...s.ghostBtn }} onClick={onBack}>
@@ -675,20 +740,34 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [screen,  setScreen]  = useState<Screen>('home');
-  const [session, setSession] = useState<SessionResult | null>(null);
+  const [screen,         setScreen]         = useState<Screen>('home');
+  const [session,        setSession]        = useState<SessionResult | null>(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+
+  // 홈 화면에서 backEvent → 종료 확인 모달
+  useEffect(() => {
+    if (screen !== 'home') return;
+    const cleanup = graniteEvent.addEventListener('backEvent', {
+      onEvent: () => setShowCloseModal(true),
+    });
+    return () => { cleanup?.(); };
+  }, [screen]);
 
   async function handleStart() {
+    if (isAdFree()) {
+      incrementSetCount();
+      setScreen('play');
+      return;
+    }
     const count = getTodaySetCount();
     if (count < FREE_SETS_PER_DAY) {
       incrementSetCount();
       setScreen('play');
     } else {
-      const earned = await showRewardedAd();
-      if (earned) {
-        incrementSetCount();
-        setScreen('play');
-      }
+      // 무료 소진 후엔 리워드 광고로(고eCPM, watch-to-play)
+      await showRewardedAd();
+      incrementSetCount();
+      setScreen('play');
     }
   }
 
@@ -699,11 +778,42 @@ export default function App() {
 
   return (
     <>
+      {/* 종료 확인 모달 */}
+      {showCloseModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }}
+          onClick={() => setShowCloseModal(false)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: '28px 24px 40px', width: '100%' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <p style={{ fontSize: 18, fontWeight: 800, color: '#111', letterSpacing: '-0.5px', marginBottom: 24 }}>
+              반응속도를 종료할까요?
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                style={{ flex: 1, padding: '16px', fontSize: '16px', fontWeight: 600, color: '#555', background: '#F0F0F0', border: 'none', borderRadius: '14px', cursor: 'pointer' }}
+                onClick={() => setShowCloseModal(false)}
+              >
+                취소
+              </button>
+              <button
+                style={{ flex: 1, padding: '16px', fontSize: '16px', fontWeight: 700, color: '#fff', background: '#111', border: 'none', borderRadius: '14px', cursor: 'pointer' }}
+                onClick={() => { setShowCloseModal(false); window.history.back(); }}
+              >
+                종료하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {screen === 'home' && (
         <HomeScreen onStart={handleStart} />
       )}
       {screen === 'play' && (
-        <PlayScreen onComplete={handlePlayComplete} />
+        <PlayScreen onComplete={handlePlayComplete} onBack={() => setScreen('home')} />
       )}
       {screen === 'result' && session && (
         <ResultScreen

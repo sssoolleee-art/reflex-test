@@ -5,7 +5,7 @@ export default defineConfig({
   brand: {
     displayName: '반응속도',
     primaryColor: '#00D2D3',
-    icon: '',
+    icon: 'https://static.toss.im/appsintoss/27863/8e4a2b8b-93af-4982-9a04-b3a15b8a4de3.png',
   },
   web: {
     host: 'localhost',
