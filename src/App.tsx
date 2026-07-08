@@ -1,7 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { graniteEvent, getTossShareLink, share } from '@apps-in-toss/web-framework';
+import { graniteEvent, getTossShareLink, share, openURL, eventLog } from '@apps-in-toss/web-framework';
 import { BannerAd, showInterstitialAd, showRewardedAd, isAdFree, restoreAdFree, buyAdFree } from './utils/ads';
 import { haptic } from './utils/haptic';
+
+// 미니앱 간 이동 (크로스 프로모션) — 토스 밖이면 무시
+const openMiniApp = (link: string) => {
+  try { void eventLog({ log_name: 'cross_promo_click', log_type: 'event', params: { to: link } }).catch(() => {}); } catch { /* ignore */ }
+  openURL(link).catch(() => {});
+};
 
 const APP_DEEPLINK = 'intoss://reflex-test';
 
@@ -592,6 +598,15 @@ function ResultScreen({
         <button style={{ ...s.ghostBtn, flex: 1 }} onClick={onShare}>
           공유
         </button>
+      </div>
+
+      {/* 크로스 프로모션 — 하루 로테이션 (지원금/퀴즈): 20대 남성 유저층 */}
+      <div style={{ padding: '12px 16px 0' }}>
+        {Math.floor(Date.now() / 86400000) % 2 === 0 ? (
+          <button style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700, color: '#0050CC', background: '#EAF2FF', border: 'none', borderRadius: 14, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => openMiniApp('intoss://subsidy-finder?_ref=reflex')}>💰 청년 지원금, 놓치는 거 없는지 확인하기 ›</button>
+        ) : (
+          <button style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg, #2D1B69, #4C1D95)', border: 'none', borderRadius: 14, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => openMiniApp('intoss://oxquiz?_ref=reflex')}>🧠 반응속도 다음은 두뇌 — 상식 퀴즈 도전 ›</button>
+        )}
       </div>
 
       <div style={{ flex: 1 }} />
