@@ -9,6 +9,10 @@ const openMiniApp = (link: string) => {
   openURL(link).catch(() => {});
 };
 
+const logEvent = (name: string, params?: Record<string, string>) => {
+  try { void eventLog({ log_name: name, log_type: 'event', params: params ?? {} }).catch(() => {}); } catch { /* ignore */ }
+};
+
 const APP_DEEPLINK = 'intoss://reflex-test';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -52,6 +56,9 @@ const SK = {
   STREAK:     'reflex_streak',
   TOTAL:      'reflex_total',
   TODAY_SETS: 'reflex_today_sets',
+  CHALLENGE:  'reflex_challenge',
+  CH_STREAK:  'reflex_ch_streak',
+  REPORT:     'reflex_report_day',
 };
 
 function lsGet<T>(key: string): T | null {
@@ -89,6 +96,41 @@ function getTotalAttempts(): number { return lsGet<number>(SK.TOTAL) ?? 0; }
 function getDailyRecords(): DailyRecord[] {
   const all = lsGet<Record<string, DailyRecord>>(SK.DAILY) ?? {};
   return Object.values(all).sort((a, b) => a.date.localeCompare(b.date)).slice(-14);
+}
+
+// ── 오늘의 도전: 내 최근 기록 기반 목표가 매일 자정 갱신 (하루 안엔 고정) ──
+function getDailyChallenge(): { target: number; done: boolean } {
+  const today = todayStr();
+  const saved = lsGet<{ date: string; target: number; done: boolean }>(SK.CHALLENGE);
+  if (saved?.date === today) return saved;
+  const recs = getDailyRecords().slice(-7);
+  const avg = recs.length ? Math.round(recs.reduce((a, r) => a + r.avgMs, 0) / recs.length) : null;
+  // 최근 평균보다 살짝 빠른 목표 (5ms 단위, 하한 160ms) — 신규 유저는 300ms
+  const target = avg ? Math.max(160, Math.round((avg - 8) / 5) * 5) : 300;
+  const ch = { date: today, target, done: false };
+  lsSet(SK.CHALLENGE, ch);
+  return ch;
+}
+
+function getChallengeStreak(): number {
+  const st = lsGet<{ lastDate: string; count: number }>(SK.CH_STREAK);
+  if (!st) return 0;
+  const yest = new Date(); yest.setDate(yest.getDate() - 1);
+  if (st.lastDate === todayStr() || st.lastDate === yest.toISOString().slice(0, 10)) return st.count;
+  return 0;
+}
+
+// 달성 처리 (멱등) — 갱신된 도전 스트릭을 반환
+function completeChallenge(): number {
+  const today = todayStr();
+  const ch = getDailyChallenge();
+  if (ch.done) return getChallengeStreak();
+  lsSet(SK.CHALLENGE, { date: today, target: ch.target, done: true });
+  const st = lsGet<{ lastDate: string; count: number }>(SK.CH_STREAK);
+  const yest = new Date(); yest.setDate(yest.getDate() - 1);
+  const count = st && st.lastDate === yest.toISOString().slice(0, 10) ? st.count + 1 : 1;
+  lsSet(SK.CH_STREAK, { lastDate: today, count });
+  return count;
 }
 
 function saveSession(session: SessionResult) {
@@ -235,6 +277,8 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
   const [adFree, setAdFree] = React.useState(isAdFree());
   const [purchasing, setPurchasing] = React.useState(false);
   const setsLeft   = adFree ? Infinity : Math.max(0, FREE_SETS_PER_DAY - setCount);
+  const ch         = getDailyChallenge();
+  const chStreak   = getChallengeStreak();
 
   React.useEffect(() => {
     restoreAdFree(() => setAdFree(true));
@@ -270,6 +314,17 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
             ? <p style={{ fontSize: 13, color: '#00B8B9', fontWeight: 600, textAlign: 'center' }}>오늘 무료 도전 {setsLeft}회 남음</p>
             : <p style={{ fontSize: 13, color: '#FF6B6B', fontWeight: 600, textAlign: 'center' }}>오늘 무료 도전 소진 · 광고 시청 후 추가 가능</p>
         }
+      </div>
+
+      {/* 오늘의 도전 */}
+      <div style={{ margin: '12px 24px 0', background: '#fff', borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 22 }}>🎯</span>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: '#111', letterSpacing: '-0.3px' }}>오늘의 도전 — {ch.target}ms 이하 찍기</p>
+          <p style={{ fontSize: 12, color: ch.done ? '#2ED573' : '#999', marginTop: 2 }}>
+            {ch.done ? `✅ 달성 완료 · 도전 스트릭 ${chStreak}일` : chStreak > 0 ? `🔥 도전 스트릭 ${chStreak}일 — 오늘도 이어가요` : '매일 자정 새 목표 · 달성하면 스트릭이 쌓여요'}
+          </p>
+        </div>
       </div>
 
       {/* 시작 버튼 */}
@@ -475,6 +530,33 @@ function ResultScreen({
 
   const g = GRADE[session.grade];
 
+  // 오늘의 도전 판정 (완료 처리는 멱등)
+  const ch = getDailyChallenge();
+  const achieved = session.bestMs <= ch.target;
+  const [chStreak] = useState(() => (achieved ? completeChallenge() : getChallengeStreak()));
+
+  // 정밀 분석 리포트 — 하루 1회 리워드 해제 (광고제거 구매자는 상시)
+  const [reportOpen, setReportOpen] = useState(() => isAdFree() || lsGet<string>(SK.REPORT) === todayStr());
+  const [reportLoading, setReportLoading] = useState(false);
+  const spread = session.results.length > 1 ? Math.abs(session.results[0] - session.results[1]) : 0;
+  const consistency = Math.max(1, Math.min(100, 100 - Math.round((spread / session.avgMs) * 100)));
+  const refRows = [
+    { label: '⚡ 프로게이머', ms: 180 },
+    { label: '🏎 F1 드라이버', ms: 200 },
+    { label: '🎮 20대 평균', ms: 273 },
+    { label: '👥 전체 평균', ms: 284 },
+  ];
+
+  async function handleReport() {
+    if (reportLoading) return;
+    setReportLoading(true);
+    await showRewardedAd();
+    lsSet(SK.REPORT, todayStr());
+    setReportOpen(true);
+    logEvent('report_unlock');
+    setReportLoading(false);
+  }
+
   async function handlePlayAgain() {
     setLoading('again');
     if (isAdFree()) {
@@ -543,6 +625,19 @@ function ResultScreen({
         })()}
       </div>
 
+      {/* 오늘의 도전 판정 */}
+      <div style={{ margin: '12px 16px 0', background: achieved ? '#E8FBF2' : '#fff', border: achieved ? '1.5px solid #2ED573' : '1.5px solid #eee', borderRadius: 14, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 20 }}>🎯</span>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontSize: 13, fontWeight: 800, color: achieved ? '#12A150' : '#333' }}>
+            {achieved ? `오늘의 도전 성공! ${ch.target}ms 이하 달성` : `오늘의 도전: ${ch.target}ms 이하 찍기`}
+          </p>
+          <p style={{ fontSize: 12, color: achieved ? '#2ED573' : '#999', marginTop: 2 }}>
+            {achieved ? `🔥 도전 스트릭 ${chStreak}일 — 내일 새 목표가 나와요` : `이번 세트 최고 ${session.bestMs}ms · ${session.bestMs - ch.target}ms 남았어요`}
+          </p>
+        </div>
+      </div>
+
       {/* 5회 결과 */}
       <div style={{ padding: '16px 16px 0' }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: '#aaa', letterSpacing: 0.5, marginBottom: 8 }}>
@@ -584,6 +679,34 @@ function ResultScreen({
             : <><span style={{ fontSize: 16, marginRight: 6 }}>🔒</span>나의 반응속도 추이 보기<span style={{ fontSize: 12, color: '#aaa', marginLeft: 4 }}>(광고 시청)</span></>
           }
         </button>
+      </div>
+
+      {/* 정밀 분석 리포트 — 하루 1회 리워드 해제 */}
+      <div style={{ margin: '12px 16px 0', background: '#fff', borderRadius: 16, padding: '14px 16px' }}>
+        <p style={{ fontSize: 13, fontWeight: 800, color: '#333' }}>📋 오늘의 정밀 분석</p>
+        <div style={reportOpen ? undefined : { filter: 'blur(6px)', userSelect: 'none' as const, pointerEvents: 'none' as const }}>
+          {refRows.map((r) => (
+            <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 13 }}>
+              <span style={{ color: '#666' }}>{r.label} {r.ms}ms</span>
+              <span style={{ fontWeight: 800, color: session.avgMs <= r.ms ? '#12A150' : '#FF6B6B' }}>
+                {session.avgMs <= r.ms ? `내가 ${r.ms - session.avgMs}ms 빨라요` : `${session.avgMs - r.ms}ms 차이`}
+              </span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 13 }}>
+            <span style={{ color: '#666' }}>🎯 일관성 점수 (기복 낮을수록 높음)</span>
+            <span style={{ fontWeight: 800, color: '#111' }}>{consistency}점</span>
+          </div>
+        </div>
+        {!reportOpen && (
+          <button
+            onClick={handleReport}
+            disabled={reportLoading}
+            style={{ width: '100%', marginTop: 10, padding: '12px', borderRadius: 12, border: 'none', background: '#111', color: '#fff', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: reportLoading ? 0.6 : 1 }}
+          >
+            {reportLoading ? '광고 불러오는 중...' : '🔓 광고 보고 정밀 분석 열기'}
+          </button>
+        )}
       </div>
 
       {/* 액션 버튼 */}
