@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { graniteEvent, getTossShareLink, share, openURL, eventLog } from '@apps-in-toss/web-framework';
+import { graniteEvent, getTossShareLink, share, openURL, eventLog, closeView } from '@apps-in-toss/web-framework';
 import { BannerAd, showInterstitialAd, showRewardedAd, isAdFree, restoreAdFree, buyAdFree } from './utils/ads';
 import { haptic } from './utils/haptic';
 
@@ -330,7 +330,7 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
       {/* 시작 버튼 */}
       <div style={{ padding: '20px 24px 0' }}>
         <button style={s.startBtn} onClick={onStart}>
-          2회 도전 시작
+          {adFree ? '2회 도전 시작' : setsLeft > 0 ? '2회 도전 시작 (결과 전 광고)' : '📺 광고 보고 도전 시작'}
         </button>
       </div>
 
@@ -716,7 +716,7 @@ function ResultScreen({
           onClick={handlePlayAgain}
           disabled={loading !== null}
         >
-          {loading === 'again' ? '잠시만요...' : '한 세트 더!'}
+          {loading === 'again' ? '잠시만요...' : isAdFree() ? '한 세트 더!' : getTodaySetCount() >= FREE_SETS_PER_DAY ? '📺 광고 보고 한 세트 더' : '한 세트 더! (결과 전 광고)'}
         </button>
         <button style={{ ...s.ghostBtn, flex: 1 }} onClick={onShare}>
           공유
@@ -919,13 +919,16 @@ function ShareScreen({ session, onBack }: { session: SessionResult; onBack: () =
 export default function App() {
   const [screen,         setScreen]         = useState<Screen>('home');
   const [session,        setSession]        = useState<SessionResult | null>(null);
-  const [showCloseModal, setShowCloseModal] = useState(false);
 
-  // 홈 화면에서 backEvent → 종료 확인 모달
+  // 내비게이션 바 뒤로가기: 첫 화면이면 미니앱 종료, 결과·기록·공유는 이전 화면으로 (플레이 화면은 PlayScreen이 처리)
   useEffect(() => {
-    if (screen !== 'home') return;
+    if (screen === 'play') return;
     const cleanup = graniteEvent.addEventListener('backEvent', {
-      onEvent: () => setShowCloseModal(true),
+      onEvent: () => {
+        if (screen === 'home') void closeView();
+        else if (screen === 'result') setScreen('home');
+        else setScreen('result');
+      },
     });
     return () => { cleanup?.(); };
   }, [screen]);
@@ -955,37 +958,6 @@ export default function App() {
 
   return (
     <>
-      {/* 종료 확인 모달 */}
-      {showCloseModal && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }}
-          onClick={() => setShowCloseModal(false)}
-        >
-          <div
-            style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: '28px 24px 40px', width: '100%' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <p style={{ fontSize: 18, fontWeight: 800, color: '#111', letterSpacing: '-0.5px', marginBottom: 24 }}>
-              반응속도를 종료할까요?
-            </p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                style={{ flex: 1, padding: '16px', fontSize: '16px', fontWeight: 600, color: '#555', background: '#F0F0F0', border: 'none', borderRadius: '14px', cursor: 'pointer' }}
-                onClick={() => setShowCloseModal(false)}
-              >
-                취소
-              </button>
-              <button
-                style={{ flex: 1, padding: '16px', fontSize: '16px', fontWeight: 700, color: '#fff', background: '#111', border: 'none', borderRadius: '14px', cursor: 'pointer' }}
-                onClick={() => { setShowCloseModal(false); window.history.back(); }}
-              >
-                종료하기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {screen === 'home' && (
         <HomeScreen onStart={handleStart} />
       )}
