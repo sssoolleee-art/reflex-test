@@ -4,6 +4,7 @@ import { BannerAd, showInterstitialAd, showRewardedAd, isAdFree, restoreAdFree, 
 import { haptic } from './utils/haptic';
 import { PushConsent, logGrowth } from './utils/growth';
 import { markSuccess } from './utils/review';
+import { FeedbackButton } from './utils/feedback';
 
 // 미니앱 간 이동 (크로스 프로모션) — 토스 밖이면 무시
 const openMiniApp = (link: string) => {
@@ -750,6 +751,7 @@ function ResultScreen({
         </div>
       )}
       <PushConsent templateCode="reflex-test-daily" label="🔔 매일 저녁 6시 무료 도전 충전 알림 받기" storageKey="reflex_push_agreed" />
+      <FeedbackButton app="reflex-test" />
       {!adFree && (
         <div style={{ padding: '0 0 16px' }}>
           <BannerAd />
@@ -955,7 +957,7 @@ export default function App() {
   }
 
   function handlePlayComplete(result: SessionResult) {
-    markSuccess(); logGrowth('session_complete', { avgMs: result.avgMs });
+    markSuccess(result.avgMs < 260); logGrowth('session_complete', { avgMs: result.avgMs });
     setSession(result);
     setScreen('result');
   }
