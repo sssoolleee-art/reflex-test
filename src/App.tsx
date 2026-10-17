@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { graniteEvent, getTossShareLink, share, openURL, eventLog, closeView } from '@apps-in-toss/web-framework';
 import { BannerAd, showInterstitialAd, showRewardedAd, isAdFree, restoreAdFree, buyAdFree } from './utils/ads';
 import { haptic } from './utils/haptic';
+import { PushConsent, logGrowth } from './utils/growth';
 
 // 미니앱 간 이동 (크로스 프로모션) — 토스 밖이면 무시
 const openMiniApp = (link: string) => {
@@ -747,6 +748,7 @@ function ResultScreen({
           </button>
         </div>
       )}
+      <PushConsent templateCode="reflex-test-daily" label="🔔 매일 저녁 6시 무료 도전 충전 알림 받기" storageKey="reflex_push_agreed" />
       {!adFree && (
         <div style={{ padding: '0 0 16px' }}>
           <BannerAd />
@@ -952,6 +954,7 @@ export default function App() {
   }
 
   function handlePlayComplete(result: SessionResult) {
+    logGrowth('session_complete', { avgMs: result.avgMs });
     setSession(result);
     setScreen('result');
   }
