@@ -3,6 +3,7 @@ import { graniteEvent, getTossShareLink, share, openURL, eventLog, closeView } f
 import { BannerAd, showInterstitialAd, showRewardedAd, isAdFree, restoreAdFree, buyAdFree } from './utils/ads';
 import { haptic } from './utils/haptic';
 import { PushConsent, logGrowth } from './utils/growth';
+import { markSuccess } from './utils/review';
 
 // 미니앱 간 이동 (크로스 프로모션) — 토스 밖이면 무시
 const openMiniApp = (link: string) => {
@@ -954,7 +955,7 @@ export default function App() {
   }
 
   function handlePlayComplete(result: SessionResult) {
-    logGrowth('session_complete', { avgMs: result.avgMs });
+    markSuccess(); logGrowth('session_complete', { avgMs: result.avgMs });
     setSession(result);
     setScreen('result');
   }
